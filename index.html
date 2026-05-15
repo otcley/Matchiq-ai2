@@ -199,7 +199,7 @@ nav{border-bottom:1px solid #1e2a3a;padding:14px 20px;display:flex;align-items:c
 
 <script>
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const FOOTBALL_API_KEY = 'e732c7831eaa4cc9b12279fc1f636277'; // Add your football-data.org key here
+const FOOTBALL_API_KEY = '';   // Add your football-data.org key here
 const ANTHROPIC_KEY    = '';   // Add your Anthropic key here
 
 const LEAGUES = [
@@ -260,29 +260,25 @@ function buildMock(leagueId) {
   return {standings, fixtures, isMock:true};
 }
 
-// ─── REAL API ─────────────────────────────────────────────────────────────────
+// ─── REAL API via Netlify Function (fixes CORS) ───────────────────────────────
 async function fetchLeagueData(leagueId) {
-  if (!FOOTBALL_API_KEY) {
-    await new Promise(r=>setTimeout(r,700));
-    return buildMock(leagueId);
-  }
   try {
-    const [sRes, fRes] = await Promise.all([
-      fetch(`https://api.football-data.org/v4/competitions/${leagueId}/standings`, {headers:{'X-Auth-Token':FOOTBALL_API_KEY}}),
-      fetch(`https://api.football-data.org/v4/competitions/${leagueId}/matches?status=SCHEDULED&limit=20`, {headers:{'X-Auth-Token':FOOTBALL_API_KEY}}),
-    ]);
-    if (!sRes.ok||!fRes.ok) throw new Error('API error');
-    const [sData, fData] = await Promise.all([sRes.json(), fRes.json()]);
-    const standings = (sData?.standings?.[0]?.table||[]).map(s=>({
+    const res = await fetch(`/.netlify/functions/football?leagueId=${leagueId}`);
+    if (!res.ok) throw new Error('Function error');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const standings = (data.standings?.standings?.[0]?.table||[]).map(s=>({
       position:s.position, team:{id:s.team.id,name:s.team.name,shortName:s.team.shortName,crest:s.team.crest},
       points:s.points, goalDifference:s.goalDifference,
       won:s.won, draw:s.draw, lost:s.lost, playedGames:s.playedGames,
       goalsFor:s.goalsFor, goalsAgainst:s.goalsAgainst,
     }));
     if (!standings.length) throw new Error('empty');
-    return {standings, fixtures:fData?.matches||[], isMock:false};
+    const fixtures = data.fixtures?.matches||[];
+    return {standings, fixtures, isMock:false};
   } catch(e) {
     console.warn('API fallback:', e.message);
+    await new Promise(r=>setTimeout(r,700));
     return buildMock(leagueId);
   }
 }
